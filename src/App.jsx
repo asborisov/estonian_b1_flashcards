@@ -5,6 +5,7 @@ import './App.css';
 
 function App() {
   const [words, setWords] = createSignal([]);
+  const [wordOrder, setWordOrder] = createSignal([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal('');
   const [currentIndex, setCurrentIndex] = createSignal(0);
@@ -12,24 +13,40 @@ function App() {
   const [direction, setDirection] = createSignal('right');
   const [language, setLanguage] = createSignal('est');
   const [isDropdownOpen, setIsDropdownOpen] = createSignal(false);
-  const currentWord = createMemo(() => words()[currentIndex()]);
-  const handleNext = () => {
+  const currentWord = createMemo(() => {
+    const order = wordOrder();
     const items = words();
-    if (!items.length) {
+    return items[order[currentIndex()]];
+  });
+
+  const shuffleIndexes = (length) => {
+    const indexes = Array.from({ length }, (_, index) => index);
+
+    for (let index = indexes.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [indexes[index], indexes[randomIndex]] = [indexes[randomIndex], indexes[index]];
+    }
+
+    return indexes;
+  };
+
+  const handleNext = () => {
+    const order = wordOrder();
+    if (!order.length) {
       return;
     }
     setDirection('right');
-    setCurrentIndex((prevIndex) => (prevIndex + 1) % items.length);
+    setCurrentIndex((prevIndex) => (prevIndex + 1) % order.length);
     setIsFlipped(false);
   };
 
   const handlePrevious = () => {
-    const items = words();
-    if (!items.length) {
+    const order = wordOrder();
+    if (!order.length) {
       return;
     }
     setDirection('left');
-    setCurrentIndex((prevIndex) => (prevIndex === 0 ? items.length - 1 : prevIndex - 1));
+    setCurrentIndex((prevIndex) => (prevIndex === 0 ? order.length - 1 : prevIndex - 1));
     setIsFlipped(false);
   };
 
@@ -69,12 +86,14 @@ function App() {
         throw new Error(`Failed to load words: ${response.status}`);
       }
       const data = await response.json();
-      setWords(
-        Object.entries(data).map(([word, details]) => ({
-          word,
-          ...details,
-        })),
-      );
+      const items = Object.entries(data).map(([word, details]) => ({
+        word,
+        ...details,
+      }));
+      setWords(items);
+      setWordOrder(shuffleIndexes(items.length));
+      setCurrentIndex(0);
+      setIsFlipped(false);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Failed to load words.');
     } finally {
