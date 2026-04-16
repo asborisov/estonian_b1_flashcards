@@ -1,7 +1,7 @@
 import React from 'react';
 import '../styles/Flashcard.css';
 
-const Flashcard = ({ word, translation, isFlipped, onFlip, direction }) => {
+const Flashcard = ({ word, translation, secondForm, thirdForm, isFlipped, onFlip, direction }) => {
   const getDictionaryUrl = (word) => {
     // Remove the last letter and any spaces before/after it
     const cleanWord = word.replace(/\s+[A-Z]\s*$/, '');
@@ -24,6 +24,7 @@ const Flashcard = ({ word, translation, isFlipped, onFlip, direction }) => {
   };
 
   const { mainWord, type } = getWordAndType(word);
+  const formsText = [secondForm, thirdForm].filter(Boolean).join(' · ');
 
   return (
     <div className="flashcard-container">
@@ -33,6 +34,7 @@ const Flashcard = ({ word, translation, isFlipped, onFlip, direction }) => {
             <div className="flashcard-front">
               <div className="flashcard-content">
                 <div className="main-word">{mainWord}</div>
+                {formsText && <div className="word-forms">{formsText}</div>}
                 <div className="word-type">{type}</div>
               </div>
             </div>

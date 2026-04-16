@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import Flashcard from './components/Flashcard';
-import wordsEst from './data/words_ru.json';
-import wordsEng from './data/words_en.json';
+import combinedWords from './data/words_combined.json';
 import './App.css';
+
+const words = Object.entries(combinedWords).map(([word, details]) => ({
+  word,
+  ...details,
+}));
 
 function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -10,8 +14,6 @@ function App() {
   const [direction, setDirection] = useState('right');
   const [language, setLanguage] = useState('est');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-
-  const words = language === 'est' ? wordsEst.words : wordsEng.words;
 
   const handleNext = () => {
     setDirection('right');
@@ -91,7 +93,13 @@ function App() {
         <Flashcard 
           key={`${currentIndex}-${language}`}
           word={words[currentIndex].word}
-          translation={words[currentIndex].translation}
+          secondForm={words[currentIndex].secondForm}
+          thirdForm={words[currentIndex].thirdForm}
+          translation={
+            language === 'est'
+              ? words[currentIndex].ruTranslation
+              : words[currentIndex].enTranslation
+          }
           isFlipped={isFlipped}
           onFlip={handleFlip}
           direction={direction}
