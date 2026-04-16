@@ -2,6 +2,10 @@ import { createMemo } from 'solid-js';
 import '../styles/Flashcard.css';
 
 function Flashcard(props) {
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let hasSwiped = false;
+
   const getDictionaryUrl = (word) => {
     const cleanWord = word.replace(/\s+[A-Z]\s*$/, '');
     const encodedWord = encodeURIComponent(cleanWord);
@@ -23,10 +27,49 @@ function Flashcard(props) {
   });
   const formsText = createMemo(() => [props.secondForm, props.thirdForm].filter(Boolean).join(' · '));
 
+  const handleTouchStart = (event) => {
+    const touch = event.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    hasSwiped = false;
+  };
+
+  const handleTouchEnd = (event) => {
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - touchStartX;
+    const deltaY = touch.clientY - touchStartY;
+
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) <= Math.abs(deltaY)) {
+      return;
+    }
+
+    hasSwiped = true;
+    if (deltaX < 0) {
+      props.onNext();
+      return;
+    }
+
+    props.onPrevious();
+  };
+
+  const handleClick = () => {
+    if (hasSwiped) {
+      hasSwiped = false;
+      return;
+    }
+
+    props.onFlip();
+  };
+
   return (
     <div class="flashcard-container">
       <div class={`flashcard-wrapper slide-${props.direction}`}>
-        <div class="flashcard" onClick={props.onFlip}>
+        <div
+          class="flashcard"
+          onClick={handleClick}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
           <div class={`flashcard-inner ${props.isFlipped ? 'flipped' : ''}`}>
             <div class="flashcard-front">
               <div class="flashcard-content">

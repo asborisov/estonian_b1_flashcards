@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import { Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import Flashcard from './components/Flashcard';
 import wordsUrl from './data/words_combined.json?url';
 import './App.css';
@@ -136,20 +136,25 @@ function App() {
 
       {!loading() && !error() && currentWord() && (
         <div class="flashcard-section">
-          <Flashcard
-            key={`${currentIndex()}-${language()}`}
-            word={currentWord().word}
-            secondForm={currentWord().secondForm}
-            thirdForm={currentWord().thirdForm}
-            translation={
-              language() === 'est'
-                ? currentWord().ruTranslation
-                : currentWord().enTranslation
-            }
-            isFlipped={isFlipped()}
-            onFlip={handleFlip}
-            direction={direction()}
-          />
+          <Show when={currentWord()} keyed>
+            {(word) => (
+              <Flashcard
+                word={word.word}
+                secondForm={word.secondForm}
+                thirdForm={word.thirdForm}
+                translation={
+                  language() === 'est'
+                    ? word.ruTranslation
+                    : word.enTranslation
+                }
+                isFlipped={isFlipped()}
+                onFlip={handleFlip}
+                onNext={handleNext}
+                onPrevious={handlePrevious}
+                direction={direction()}
+              />
+            )}
+          </Show>
           <div class="navigation-buttons">
             <button
               onClick={handlePrevious}
@@ -157,6 +162,13 @@ function App() {
               title="Previous (←)"
             >
               ←
+            </button>
+            <button
+              onClick={handleFlip}
+              class="action-button flip-button"
+              title="Flip (↑ or Space)"
+            >
+              Flip
             </button>
             <button
               onClick={handleNext}
