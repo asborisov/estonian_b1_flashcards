@@ -1,59 +1,101 @@
-import React from 'react';
+import { createMemo } from 'solid-js';
 import '../styles/Flashcard.css';
 
-const Flashcard = ({ word, translation, isFlipped, onFlip, direction }) => {
+function Flashcard(props) {
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let hasSwiped = false;
+
   const getDictionaryUrl = (word) => {
-    // Remove the last letter and any spaces before/after it
     const cleanWord = word.replace(/\s+[A-Z]\s*$/, '');
     const encodedWord = encodeURIComponent(cleanWord);
     return `https://sonaveeb.ee/search/unif/dlall/dsall/${encodedWord}/1/est`;
   };
 
-  const getWordAndType = (word) => {
-    const match = word.match(/(.*?)\s+([A-Z])\s*$/);
+  const wordDetails = createMemo(() => {
+    const match = props.word.match(/(.*?)\s+([A-Z])\s*$/);
     if (match) {
       return {
         mainWord: match[1],
-        type: match[2]
+        type: match[2],
       };
     }
     return {
-      mainWord: word,
-      type: ''
+      mainWord: props.word,
+      type: '',
     };
+  });
+  const formsText = createMemo(() => [props.secondForm, props.thirdForm].filter(Boolean).join(' · '));
+
+  const handleTouchStart = (event) => {
+    const touch = event.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    hasSwiped = false;
   };
 
-  const { mainWord, type } = getWordAndType(word);
+  const handleTouchEnd = (event) => {
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - touchStartX;
+    const deltaY = touch.clientY - touchStartY;
+
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) <= Math.abs(deltaY)) {
+      return;
+    }
+
+    hasSwiped = true;
+    if (deltaX < 0) {
+      props.onNext();
+      return;
+    }
+
+    props.onPrevious();
+  };
+
+  const handleClick = () => {
+    if (hasSwiped) {
+      hasSwiped = false;
+      return;
+    }
+
+    props.onFlip();
+  };
 
   return (
-    <div className="flashcard-container">
-      <div className={`flashcard-wrapper slide-${direction}`}>
-        <div className="flashcard" onClick={onFlip}>
-          <div className={`flashcard-inner ${isFlipped ? 'flipped' : ''}`}>
-            <div className="flashcard-front">
-              <div className="flashcard-content">
-                <div className="main-word">{mainWord}</div>
-                <div className="word-type">{type}</div>
+    <div class="flashcard-container">
+      <div class={`flashcard-wrapper slide-${props.direction}`}>
+        <div
+          class="flashcard"
+          onClick={handleClick}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
+          <div class={`flashcard-inner ${props.isFlipped ? 'flipped' : ''}`}>
+            <div class="flashcard-front">
+              <div class="flashcard-content">
+                <div class="main-word">{wordDetails().mainWord}</div>
+                {formsText() && <div class="word-forms">{formsText()}</div>}
+                <div class="word-type">{wordDetails().type}</div>
               </div>
             </div>
-            <div className="flashcard-back">
-              <div className="flashcard-content">
-                <div className="main-word">{translation}</div>
+            <div class="flashcard-back">
+              <div class="flashcard-content">
+                <div class="main-word">{props.translation}</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <a 
-        href={getDictionaryUrl(word)} 
-        target="_blank" 
-        rel="noopener noreferrer" 
-        className="dictionary-link"
+      <a
+        href={getDictionaryUrl(props.word)}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="dictionary-link"
       >
         Look up in Dictionary
       </a>
     </div>
   );
-};
+}
 
-export default Flashcard; 
+export default Flashcard;

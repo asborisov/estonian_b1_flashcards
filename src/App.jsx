@@ -1,84 +1,236 @@
-import React, { useState, useEffect } from 'react';
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import Flashcard from './components/Flashcard';
-import wordsEst from './data/words_ru.json';
-import wordsEng from './data/words_en.json';
+import wordsUrl from './data/words_combined.json?url';
 import './App.css';
 
 function App() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isFlipped, setIsFlipped] = useState(false);
-  const [direction, setDirection] = useState('right');
-  const [language, setLanguage] = useState('est');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [words, setWords] = createSignal([]);
+  const [wordOrder, setWordOrder] = createSignal([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal('');
+  const [currentIndex, setCurrentIndex] = createSignal(0);
+  const [isFlipped, setIsFlipped] = createSignal(false);
+  const [direction, setDirection] = createSignal('right');
+  const [language, setLanguage] = createSignal('est');
+  const [studyMode, setStudyMode] = createSignal('flashcards');
+  const [selectedAnswerId, setSelectedAnswerId] = createSignal(null);
+  const [quizSeed, setQuizSeed] = createSignal(0);
+  const [isDropdownOpen, setIsDropdownOpen] = createSignal(false);
+  const currentWord = createMemo(() => {
+    const order = wordOrder();
+    const items = words();
+    return items[order[currentIndex()]];
+  });
 
-  const words = language === 'est' ? wordsEst.words : wordsEng.words;
+  const shuffleIndexes = (length) => {
+    const indexes = Array.from({ length }, (_, index) => index);
+
+    for (let index = indexes.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [indexes[index], indexes[randomIndex]] = [indexes[randomIndex], indexes[index]];
+    }
+
+    return indexes;
+  };
+
+  const shuffleItems = (items) => {
+    const shuffled = [...items];
+
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+    }
+
+    return shuffled;
+  };
+
+  const getWordDetails = (word) => {
+    const match = word.match(/(.*?)\s+([A-Z])\s*$/);
+    if (match) {
+      return {
+        mainWord: match[1],
+        type: match[2],
+      };
+    }
+
+    return {
+      mainWord: word,
+      type: '',
+    };
+  };
+
+  const getTranslation = (word) => (
+    language() === 'est'
+      ? word.ruTranslation
+      : word.enTranslation
+  );
+
+  const resetQuizAnswer = () => {
+    setSelectedAnswerId(null);
+    setQuizSeed((seed) => seed + 1);
+  };
+
+  const quizOptions = createMemo(() => {
+    quizSeed();
+
+    const word = currentWord();
+    const items = words();
+    if (!word || items.length < 4) {
+      return [];
+    }
+
+    const answerLabel = studyMode() === 'est-to-translation'
+      ? getTranslation(word)
+      : getWordDetails(word.word).mainWord;
+    const usedLabels = new Set([answerLabel]);
+    const distractors = [];
+
+    for (const candidate of shuffleItems(items.filter((item) => item.id !== word.id))) {
+      const label = studyMode() === 'est-to-translation'
+        ? getTranslation(candidate)
+        : getWordDetails(candidate.word).mainWord;
+
+      if (!label || usedLabels.has(label)) {
+        continue;
+      }
+
+      usedLabels.add(label);
+      distractors.push(candidate);
+
+      if (distractors.length === 3) {
+        break;
+      }
+    }
+
+    const options = [word, ...distractors].map((item) => ({
+      id: item.id,
+      label: studyMode() === 'est-to-translation'
+        ? getTranslation(item)
+        : getWordDetails(item.word).mainWord,
+    }));
+
+    if (!answerLabel || options.length < 4) {
+      return [];
+    }
+
+    return shuffleItems(options);
+  });
+
+  const handleModeChange = (newMode) => {
+    setStudyMode(newMode);
+    setIsFlipped(false);
+    resetQuizAnswer();
+  };
 
   const handleNext = () => {
+    const order = wordOrder();
+    if (!order.length) {
+      return;
+    }
     setDirection('right');
-    setCurrentIndex((prevIndex) => (prevIndex + 1) % words.length);
+    setCurrentIndex((prevIndex) => (prevIndex + 1) % order.length);
     setIsFlipped(false);
+    resetQuizAnswer();
   };
 
   const handlePrevious = () => {
+    const order = wordOrder();
+    if (!order.length) {
+      return;
+    }
     setDirection('left');
-    setCurrentIndex((prevIndex) => 
-      prevIndex === 0 ? words.length - 1 : prevIndex - 1
-    );
+    setCurrentIndex((prevIndex) => (prevIndex === 0 ? order.length - 1 : prevIndex - 1));
     setIsFlipped(false);
+    resetQuizAnswer();
   };
 
   const handleFlip = () => {
-    setIsFlipped(prev => !prev);
+    setIsFlipped((prev) => !prev);
   };
 
   const handleLanguageChange = (newLanguage) => {
     setLanguage(newLanguage);
     setCurrentIndex(0);
     setIsFlipped(false);
+    resetQuizAnswer();
     setIsDropdownOpen(false);
   };
 
-  useEffect(() => {
+  const handleAnswerSelect = (answerId) => {
+    if (selectedAnswerId() !== null) {
+      return;
+    }
+
+    setSelectedAnswerId(answerId);
+  };
+
+  onMount(() => {
     const handleKeyPress = (event) => {
       if (event.key === 'ArrowRight') {
         handleNext();
       } else if (event.key === 'ArrowLeft') {
         handlePrevious();
-      } else if (event.key === 'ArrowUp' || event.key === ' ') {
+      } else if (studyMode() === 'flashcards' && (event.key === 'ArrowUp' || event.key === ' ')) {
         event.preventDefault();
         handleFlip();
+      } else if (studyMode() !== 'flashcards' && ['1', '2', '3', '4'].includes(event.key)) {
+        const option = quizOptions()[Number(event.key) - 1];
+        if (option) {
+          handleAnswerSelect(option.id);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
-
-    // Cleanup listener on component unmount
-    return () => {
+    onCleanup(() => {
       window.removeEventListener('keydown', handleKeyPress);
-    };
-  }, []); // Empty dependency array since handlers are stable
+    });
+  });
+
+  onMount(async () => {
+    try {
+      const response = await fetch(wordsUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to load words: ${response.status}`);
+      }
+      const data = await response.json();
+      const items = Object.entries(data).map(([word, details]) => ({
+        id: word,
+        word,
+        ...details,
+      }));
+      setWords(items);
+      setWordOrder(shuffleIndexes(items.length));
+      setCurrentIndex(0);
+      setIsFlipped(false);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load words.');
+    } finally {
+      setLoading(false);
+    }
+  });
 
   return (
-    <div className="app">
-      <div className="header">
+    <div class="app">
+      <div class="header">
         <h1>Estonian B1 Exam Flashcards</h1>
-        <div className="language-dropdown">
-          <button 
-            className="dropdown-button"
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+        <div class="language-dropdown">
+          <button
+            class="dropdown-button"
+            onClick={() => setIsDropdownOpen(!isDropdownOpen())}
           >
-            {language === 'est' ? 'Русский' : 'English'} ▼
+            {language() === 'est' ? 'Русский' : 'English'} ▼
           </button>
-          {isDropdownOpen && (
-            <div className="dropdown-content">
-              <button 
-                className={language === 'est' ? 'active' : ''}
+          {isDropdownOpen() && (
+            <div class="dropdown-content">
+              <button
+                classList={{ active: language() === 'est' }}
                 onClick={() => handleLanguageChange('est')}
               >
                 Русский
               </button>
-              <button 
-                className={language === 'eng' ? 'active' : ''}
+              <button
+                classList={{ active: language() === 'eng' }}
                 onClick={() => handleLanguageChange('eng')}
               >
                 English
@@ -87,35 +239,134 @@ function App() {
           )}
         </div>
       </div>
-      <div className="flashcard-section">
-        <Flashcard 
-          key={`${currentIndex}-${language}`}
-          word={words[currentIndex].word}
-          translation={words[currentIndex].translation}
-          isFlipped={isFlipped}
-          onFlip={handleFlip}
-          direction={direction}
-        />
-        <div className="navigation-buttons">
-          <button 
-            onClick={handlePrevious} 
-            className="arrow-button"
-            title="Previous (←)"
+
+      <div class="study-controls" aria-label="Study controls">
+        <div class="segmented-control" aria-label="Study mode">
+          <button
+            classList={{ active: studyMode() === 'flashcards' }}
+            onClick={() => handleModeChange('flashcards')}
           >
-            ←
+            Flashcards
           </button>
-          <button 
-            onClick={handleNext} 
-            className="arrow-button"
-            title="Next (→)"
+          <button
+            classList={{ active: studyMode() === 'est-to-translation' }}
+            onClick={() => handleModeChange('est-to-translation')}
           >
-            →
+            Est → {language() === 'est' ? 'Ru' : 'En'}
+          </button>
+          <button
+            classList={{ active: studyMode() === 'translation-to-est' }}
+            onClick={() => handleModeChange('translation-to-est')}
+          >
+            {language() === 'est' ? 'Ru' : 'En'} → Est
           </button>
         </div>
       </div>
-      <footer className="legend">
+
+      {loading() && <p class="status-message">Loading words...</p>}
+      {error() && <p class="status-message error-message">{error()}</p>}
+
+      {!loading() && !error() && currentWord() && (
+        <div class="flashcard-section">
+          <Show when={currentWord()} keyed>
+            {(word) => (
+              <Show
+                when={studyMode() !== 'flashcards'}
+                fallback={(
+                  <Flashcard
+                    word={word.word}
+                    secondForm={word.secondForm}
+                    thirdForm={word.thirdForm}
+                    translation={getTranslation(word)}
+                    isFlipped={isFlipped()}
+                    onFlip={handleFlip}
+                    onNext={handleNext}
+                    onPrevious={handlePrevious}
+                    direction={direction()}
+                  />
+                )}
+              >
+                <div class="quiz-card" classList={{ answered: selectedAnswerId() !== null }}>
+                  <div class="quiz-prompt-label">
+                    Pick the correct {studyMode() === 'est-to-translation' ? 'translation' : 'Estonian word'}
+                  </div>
+                  <div class="quiz-prompt">
+                    <Show
+                      when={studyMode() === 'est-to-translation'}
+                      fallback={<div class="main-word">{getTranslation(word)}</div>}
+                    >
+                      <div class="main-word">{getWordDetails(word.word).mainWord}</div>
+                      {[word.secondForm, word.thirdForm].filter(Boolean).join(' · ') && (
+                        <div class="word-forms">{[word.secondForm, word.thirdForm].filter(Boolean).join(' · ')}</div>
+                      )}
+                      <div class="word-type">{getWordDetails(word.word).type}</div>
+                    </Show>
+                  </div>
+                  <div class="quiz-options">
+                    <For each={quizOptions()}>
+                      {(option, index) => {
+                        const isCorrect = option.id === word.id;
+                        const isSelected = selectedAnswerId() === option.id;
+                        return (
+                          <button
+                            class="quiz-option"
+                            classList={{
+                              correct: selectedAnswerId() !== null && isCorrect,
+                              incorrect: selectedAnswerId() !== null && isSelected && !isCorrect,
+                            }}
+                            disabled={selectedAnswerId() !== null}
+                            onClick={() => handleAnswerSelect(option.id)}
+                          >
+                            <span class="quiz-option-index">{index() + 1}</span>
+                            <span>{option.label}</span>
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </div>
+                  <Show when={selectedAnswerId() !== null}>
+                    <div
+                      class="quiz-result"
+                      classList={{ success: selectedAnswerId() === word.id, error: selectedAnswerId() !== word.id }}
+                    >
+                      {selectedAnswerId() === word.id ? 'Correct' : 'Not quite'}
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+            )}
+          </Show>
+          <div class="navigation-buttons">
+            <button
+              onClick={handlePrevious}
+              class="arrow-button"
+              title="Previous (←)"
+            >
+              ←
+            </button>
+            <Show when={studyMode() === 'flashcards'}>
+              <button
+                onClick={handleFlip}
+                class="action-button flip-button"
+                title="Flip (↑ or Space)"
+              >
+                Flip
+              </button>
+            </Show>
+            <button
+              onClick={handleNext}
+              class="arrow-button"
+              title="Next (→)"
+            >
+              →
+            </button>
+          </div>
+        </div>
+      )}
+
+      <footer class="legend">
         <h2>Word Types:</h2>
-        <div className="legend-grid">
+        <div class="legend-grid">
           <div><strong>A</strong> – omadussõna</div>
           <div><strong>D</strong> – määrsõna</div>
           <div><strong>G</strong> – käändumatu omadussõna</div>
@@ -134,4 +385,4 @@ function App() {
   );
 }
 
-export default App; 
+export default App;
