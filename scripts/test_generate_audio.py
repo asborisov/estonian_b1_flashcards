@@ -30,10 +30,10 @@ class RegenerationTests(unittest.TestCase):
         self.manifest.write_text('{"previous": true}')
         (self.output / 'README.md').write_text('Keep me')
 
-    def run_generator(self, synth):
+    def run_generator(self, synth, workers=1):
         with patch.object(generator, 'ROOT', self.root), patch.object(generator, 'OUTPUT', self.output), \
                 patch.object(generator, 'generate', synth), patch.object(generator.time, 'sleep'), \
-                patch('sys.argv', ['generate-audio.py']), contextlib.redirect_stdout(io.StringIO()):
+                patch('sys.argv', ['generate-audio.py', '--workers', str(workers)]), contextlib.redirect_stdout(io.StringIO()):
             generator.main()
 
     def test_success_prunes_obsolete_audio_and_resumes_existing_files(self):
@@ -57,6 +57,29 @@ class RegenerationTests(unittest.TestCase):
             self.run_generator(Mock(side_effect=RuntimeError('TTS unavailable')))
         self.assertEqual(json.loads(self.manifest.read_text()), {'previous': True})
         self.assertTrue(self.stale.exists())
+
+    def test_failure_does_not_drain_the_remaining_dictionary(self):
+        from unittest.mock import Mock
+        words = {f'word{i} S': {} for i in range(20)}
+        (self.root / 'src/data/words_combined.json').write_text(json.dumps(words))
+        for workers in (1, 2):
+            with self.subTest(workers=workers):
+                synth = Mock(side_effect=RuntimeError('TTS unavailable'))
+                with self.assertRaises(RuntimeError):
+                    self.run_generator(synth, workers=workers)
+                self.assertLessEqual(synth.call_count, workers * 3)
+                self.assertEqual(json.loads(self.manifest.read_text()), {'previous': True})
+                self.assertTrue(self.stale.exists())
+
+    def test_parallel_success_processes_the_whole_dictionary(self):
+        from unittest.mock import Mock
+        words = {f'word{i} S': {} for i in range(20)}
+        (self.root / 'src/data/words_combined.json').write_text(json.dumps(words))
+        synth = Mock(return_value=b'new audio' * 200)
+        self.run_generator(synth, workers=2)
+        self.assertEqual(synth.call_count, 20)
+        self.assertEqual(len(list(self.output.glob('*.mp3'))), 20)
+        self.assertEqual(len(json.loads(self.manifest.read_text())['entries']), 20)
 
 
 if __name__ == '__main__':

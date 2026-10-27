@@ -50,19 +50,38 @@ def main():
     start = time.monotonic()
     generated = 0
     print(json.dumps(dict(resumed=initial, remaining=len(pending), workers=args.workers)), flush=True)
+    remaining = iter(pending)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(process_entry, item): item[0] for item in pending}
-        for future in concurrent.futures.as_completed(futures):
-            word = future.result()
-            generated += 1
-            completed = initial + generated
-            if generated % 25 == 0 or completed == len(entries):
-                elapsed = time.monotonic() - start
-                size = sum(p.stat().st_size for p in OUTPUT.glob('*.mp3'))
-                print(json.dumps(dict(completed=completed, total=len(entries), generated=generated,
-                                      megabytes=round(size / 1e6, 2), elapsed_seconds=round(elapsed),
-                                      eta_seconds=round(elapsed / generated * (len(entries) - completed)),
-                                      last=word)), flush=True)
+        # Keep only active requests submitted; never queue the entire dictionary.
+        futures = {pool.submit(process_entry, item): item[0]
+                   for item in (next(remaining, None) for _ in range(args.workers))
+                   if item is not None}
+        while futures:
+            done, _ = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            try:
+                # Check every completed request before scheduling replacements.
+                results = [future.result() for future in done]
+            except BaseException as error:
+                for future in futures:
+                    future.cancel()
+                print(f'Generation failed: {error}. No more words will be scheduled; '
+                      'waiting for any in-flight request to finish.', flush=True)
+                raise
+            for future in done:
+                del futures[future]
+            for word in results:
+                generated += 1
+                completed = initial + generated
+                if generated % 25 == 0 or completed == len(entries):
+                    elapsed = time.monotonic() - start
+                    size = sum(p.stat().st_size for p in OUTPUT.glob('*.mp3'))
+                    print(json.dumps(dict(completed=completed, total=len(entries), generated=generated,
+                                          megabytes=round(size / 1e6, 2), elapsed_seconds=round(elapsed),
+                                          eta_seconds=round(elapsed / generated * (len(entries) - completed)),
+                                          last=word)), flush=True)
+                item = next(remaining, None)
+                if item is not None:
+                    futures[pool.submit(process_entry, item)] = item[0]
     # Publish only after generation succeeds, then remove obsolete generated files.
     manifest_tmp = OUTPUT / 'manifest.json.tmp'
     manifest_tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')

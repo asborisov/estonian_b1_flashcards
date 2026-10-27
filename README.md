@@ -67,7 +67,7 @@ Feel free to submit issues and enhancement requests.
 The Listen button plays the Estonian word and every available form in a single
 recording. Repeated forms are spoken again. Recordings live in `public/audio/`
 and are copied into the GitHub Pages build by Vite. They load only when Listen is
-pressed; changing words stops playback. Translation-to-Estonian quizzes show
+pressed; the manifest loads before Listen is enabled, and changing words stops playback. Translation-to-Estonian quizzes show
 Listen after the answer has been selected.
 
 `public/audio/manifest.json` maps the exact dictionary keys to MP3 filenames and
@@ -81,7 +81,9 @@ python3 scripts/generate-audio.py
 ```
 
 After successful generation, the manifest is replaced atomically and obsolete
-generated MP3s are removed. Failed runs preserve the previous manifest and recordings.
+generated MP3s are removed. Failed runs preserve the previous manifest and recordings. After a recording exhausts
+its retries, no more words are scheduled; at most the other in-flight recording
+finishes before exit.
 
 For two concurrent requests, use `python3 scripts/generate-audio.py --workers 2`
 with two worker containers consuming the same TartuNLP queue.

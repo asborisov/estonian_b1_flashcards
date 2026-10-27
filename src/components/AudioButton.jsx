@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, Show } from 'solid-js';
+import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import '../styles/AudioButton.css';
 
 let manifestPromise;
@@ -19,7 +19,8 @@ const loadManifest = () => {
 
 export default function AudioButton(props) {
   const [playing, setPlaying] = createSignal(false);
-  const [loading, setLoading] = createSignal(false);
+  const [loading, setLoading] = createSignal(true);
+  const [audioUrl, setAudioUrl] = createSignal('');
   const [error, setError] = createSignal('');
   let audio;
   let disposed = false;
@@ -40,7 +41,30 @@ export default function AudioButton(props) {
     resetAudio();
   });
 
+  const prepare = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const manifest = await loadManifest();
+      if (disposed) return;
+      const entry = manifest.entries[props.word];
+      if (!entry) throw new Error('Recording unavailable');
+      setAudioUrl(`${import.meta.env.BASE_URL}audio/${entry.file}`);
+    } catch {
+      if (!disposed) setError('Could not load the audio library. Please retry.');
+    } finally {
+      if (!disposed) setLoading(false);
+    }
+  };
+
+  onMount(prepare);
+
   const play = async () => {
+    if (loading() || disposed) return;
+    if (!audioUrl()) {
+      await prepare();
+      return;
+    }
     if (playing()) {
       audio.pause();
       setPlaying(false);
@@ -50,11 +74,8 @@ export default function AudioButton(props) {
     setLoading(true);
     try {
       if (!audio) {
-        const manifest = await loadManifest();
-        if (disposed) return;
-        const entry = manifest.entries[props.word];
-        if (!entry) throw new Error('Recording unavailable');
-        audio = new Audio(`${import.meta.env.BASE_URL}audio/${entry.file}`);
+        // Keep play() in the click handler's synchronous call stack for iOS.
+        audio = new Audio(audioUrl());
         audio.onended = () => setPlaying(false);
         audio.onerror = () => {
           resetAudio();
@@ -81,11 +102,11 @@ export default function AudioButton(props) {
         type="button"
         class="audio-button"
         disabled={loading()}
-        aria-label={loading() ? 'Loading pronunciation' : playing() ? 'Stop pronunciation' : 'Listen to Estonian word and forms'}
+        aria-label={loading() ? 'Loading pronunciation' : !audioUrl() ? 'Retry audio library' : playing() ? 'Stop pronunciation' : 'Listen to Estonian word and forms'}
         onClick={play}
       >
         <span aria-hidden="true">{playing() ? '■' : '▶'}</span>
-        {' '}{loading() ? 'Loading…' : playing() ? 'Stop' : 'Listen'}
+        {' '}{loading() ? 'Loading…' : !audioUrl() ? 'Retry audio' : playing() ? 'Stop' : 'Listen'}
       </button>
       <Show when={error()}><span class="audio-error" role="status">{error()}</span></Show>
     </div>
