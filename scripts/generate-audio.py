@@ -44,7 +44,6 @@ def main():
         digest = hashlib.sha256(json.dumps([word,forms,SETTINGS],ensure_ascii=False,sort_keys=True).encode()).hexdigest()[:24]
         entries[word] = dict(file=digest+'.mp3',forms=forms,text=text)
     manifest = dict(settings=SETTINGS,entries=entries)
-    (OUTPUT/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
     pending = [(word, entry) for word, entry in entries.items()
                if not (OUTPUT / entry['file']).exists()]
     initial = len(entries) - len(pending)
@@ -64,5 +63,16 @@ def main():
                                       megabytes=round(size / 1e6, 2), elapsed_seconds=round(elapsed),
                                       eta_seconds=round(elapsed / generated * (len(entries) - completed)),
                                       last=word)), flush=True)
+    # Publish only after generation succeeds, then remove obsolete generated files.
+    manifest_tmp = OUTPUT / 'manifest.json.tmp'
+    manifest_tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
+    manifest_tmp.replace(OUTPUT / 'manifest.json')
+    expected = {entry['file'] for entry in entries.values()}
+    removed = 0
+    for path in OUTPUT.glob('*.mp3'):
+        if re.fullmatch(r'[a-f0-9]{24}\.mp3', path.name) and path.name not in expected:
+            path.unlink()
+            removed += 1
+    print(json.dumps(dict(obsolete_recordings_removed=removed)), flush=True)
     print('DONE',flush=True)
 if __name__=='__main__': main()

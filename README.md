@@ -80,6 +80,9 @@ To regenerate or resume missing files with the local Docker services running:
 python3 scripts/generate-audio.py
 ```
 
+After successful generation, the manifest is replaced atomically and obsolete
+generated MP3s are removed. Failed runs preserve the previous manifest and recordings.
+
 For two concurrent requests, use `python3 scripts/generate-audio.py --workers 2`
 with two worker containers consuming the same TartuNLP queue.
 

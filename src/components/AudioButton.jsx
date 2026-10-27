@@ -24,13 +24,20 @@ export default function AudioButton(props) {
   let audio;
   let disposed = false;
 
-  onCleanup(() => {
-    disposed = true;
+  const resetAudio = () => {
     if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
       audio.pause();
       audio.removeAttribute('src');
       audio.load();
+      audio = undefined;
     }
+  };
+
+  onCleanup(() => {
+    disposed = true;
+    resetAudio();
   });
 
   const play = async () => {
@@ -50,6 +57,8 @@ export default function AudioButton(props) {
         audio = new Audio(`${import.meta.env.BASE_URL}audio/${entry.file}`);
         audio.onended = () => setPlaying(false);
         audio.onerror = () => {
+          resetAudio();
+          if (disposed) return;
           setPlaying(false);
           setLoading(false);
           setError('Could not play audio. Please try again.');
@@ -59,6 +68,7 @@ export default function AudioButton(props) {
       await audio.play();
       if (!disposed) setPlaying(true);
     } catch {
+      resetAudio();
       if (!disposed) setError('Could not play audio. Please try again.');
     } finally {
       if (!disposed) setLoading(false);
@@ -71,7 +81,7 @@ export default function AudioButton(props) {
         type="button"
         class="audio-button"
         disabled={loading()}
-        aria-label={playing() ? 'Stop pronunciation' : 'Play Estonian word and forms'}
+        aria-label={loading() ? 'Loading pronunciation' : playing() ? 'Stop pronunciation' : 'Listen to Estonian word and forms'}
         onClick={play}
       >
         <span aria-hidden="true">{playing() ? '■' : '▶'}</span>
