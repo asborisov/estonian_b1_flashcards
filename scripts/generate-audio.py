@@ -1,17 +1,36 @@
 #!/usr/bin/env python3
-"""Generate resumable dictionary audio using the local TartuNLP Docker API."""
-import argparse, concurrent.futures, hashlib, json, pathlib, re, subprocess, time
+"""Generate resumable dictionary audio using Azure Neural TTS through llm-gateway."""
+import argparse, concurrent.futures, hashlib, json, pathlib, re, subprocess, time, os, urllib.request, urllib.error
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'public/audio'
-SETTINGS = dict(voice='mari', speed=0.9, bitrate=64,
-                filters='highpass=f=65,afftdn=nr=3:nf=-35:tn=1,lowpass=f=5000',
-                pauses='natural; forms separated by full stops')
+SETTINGS = dict(provider='azure', model='neural', voice='et-EE-AnuNeural', speed=1.0,
+                bitrate=64, filters='', pauses='natural; forms separated by full stops')
 
 def generate(text):
-    data = json.dumps(dict(text=text, speaker='mari', speed=0.9)).encode()
-    code = 'import urllib.request,sys;sys.stdout.buffer.write(urllib.request.urlopen(urllib.request.Request("http://localhost:8000/v2",data='+repr(data)+',headers={"Content-Type":"application/json"}),timeout=300).read())'
-    wav = subprocess.run(['docker','exec','tartunlp-tts-api-1','python','-c',code], capture_output=True, check=True, timeout=310).stdout
-    return subprocess.run(['docker','exec','-i','immich_server','ffmpeg','-v','error','-i','pipe:0','-af',SETTINGS['filters'],'-ac','1','-ar','22050','-codec:a','libmp3lame','-b:a','64k','-f','mp3','pipe:1'], input=wav,capture_output=True,check=True,timeout=60).stdout
+    token_file = pathlib.Path(os.environ['LLM_GATEWAY_TOKEN_FILE'])
+    endpoint = os.environ.get('LLM_GATEWAY_URL')
+    if not endpoint:
+        container = json.loads(subprocess.check_output(['docker', 'inspect', 'llm-gateway-caddy-1'], timeout=10))[0]
+        address = container['NetworkSettings']['Networks']['llm_clients']['IPAddress']
+        endpoint = f'http://{address}:8080'
+    data = json.dumps(dict(provider=SETTINGS['provider'], model=SETTINGS['model'],
+                           input=text, voice=SETTINGS['voice'], speed=SETTINGS['speed'],
+                           response_format='wav'), ensure_ascii=False).encode()
+    request = urllib.request.Request(endpoint.rstrip('/') + '/v1/audio/speech', data=data,
+                                    headers={'Content-Type': 'application/json',
+                                             'Authorization': 'Bearer ' + token_file.read_text().strip()})
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            wav = response.read()
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f'llm-gateway speech returned HTTP {error.code}') from None
+    if not wav.startswith(b'RIFF'):
+        raise ValueError('Gateway returned an invalid WAV response')
+    # No denoising, frequency filters, tempo adjustment or added silence.
+    return subprocess.run(['docker','exec','-i','immich_server','ffmpeg','-v','error','-i','pipe:0',
+                           '-ac','1','-ar','22050','-codec:a','libmp3lame','-b:a','64k','-f','mp3','pipe:1'],
+                          input=wav,capture_output=True,check=True,timeout=60).stdout
+
 
 def process_entry(item):
     word, entry = item
@@ -32,8 +51,8 @@ def process_entry(item):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--workers', type=int, choices=(1, 2), default=1,
-                        help='Concurrent API requests; two requires two TTS workers')
+    parser.add_argument('--workers', type=int, choices=(1, 2, 3), default=3,
+                        help='Concurrent gateway synthesis requests (default: 3)')
     args = parser.parse_args()
     words = json.loads((ROOT/'src/data/words_combined.json').read_text())
     OUTPUT.mkdir(parents=True,exist_ok=True)
@@ -74,7 +93,8 @@ def main():
                 completed = initial + generated
                 if generated % 25 == 0 or completed == len(entries):
                     elapsed = time.monotonic() - start
-                    size = sum(p.stat().st_size for p in OUTPUT.glob('*.mp3'))
+                    size = sum((OUTPUT / e['file']).stat().st_size for e in entries.values()
+                               if (OUTPUT / e['file']).exists())
                     print(json.dumps(dict(completed=completed, total=len(entries), generated=generated,
                                           megabytes=round(size / 1e6, 2), elapsed_seconds=round(elapsed),
                                           eta_seconds=round(elapsed / generated * (len(entries) - completed)),
