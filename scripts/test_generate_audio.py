@@ -62,7 +62,7 @@ class RegenerationTests(unittest.TestCase):
         from unittest.mock import Mock
         words = {f'word{i} S': {} for i in range(20)}
         (self.root / 'src/data/words_combined.json').write_text(json.dumps(words))
-        for workers in (1, 2):
+        for workers in (1, 2, 3):
             with self.subTest(workers=workers):
                 synth = Mock(side_effect=RuntimeError('TTS unavailable'))
                 with self.assertRaises(RuntimeError):
@@ -76,7 +76,7 @@ class RegenerationTests(unittest.TestCase):
         words = {f'word{i} S': {} for i in range(20)}
         (self.root / 'src/data/words_combined.json').write_text(json.dumps(words))
         synth = Mock(return_value=b'new audio' * 200)
-        self.run_generator(synth, workers=2)
+        self.run_generator(synth, workers=3)
         self.assertEqual(synth.call_count, 20)
         self.assertEqual(len(list(self.output.glob('*.mp3'))), 20)
         self.assertEqual(len(json.loads(self.manifest.read_text())['entries']), 20)
